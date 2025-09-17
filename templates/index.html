@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>EMAstats</title>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans:ital,wght@0,100..900;1,100..900&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/static/styles/index_style.css?v=25200916">
+</head>
+
+<body>
+    <header class="custom-header">
+        <a class="logo-text" href="/home">emastats</a>
+        <a class="logo" href="/home">consulting</a>
+    </header>
+        
+   <form action="/home" method="GET">
+        <div class="search-container">
+            <input type="text" name="periodsQuery" placeholder="Поиск услуг..." class="search-input" value="{{ .periodsQuery }}">
+            <button type="submit" class="search-button">Найти</button>
+        </div>
+    </form>
+
+     <div class="cards-container">
+        <ul>
+            {{ range .periods }}
+            <li>
+                <div class="card">
+                    <div class="card-title">{{ .Title }}</div>
+                    <div class="card-description">{{ .Description }}</div>
+                    <img src="{{ .Img }}" alt="{{ .Title }}" class="card-img">
+                    <div class="card-duration">{{ .Duration }}</div>
+                    <div class="card-buttons">
+                        <a class="card-more" href="/period/{{ .ID }}">Подробнее</a>
+                        <form method="POST" action="/add-to-application/{{ .ID }}">
+                            <input type="hidden" name="redirect" value="/home">
+                            <button type="submit" class="card-button">В заявку</button>
+                        </form>
+                    </div>
+                </div>
+            </li>
+            {{ end }}
+        </ul>
+     </div>
+    
+     {{if gt .selectedPeriodsCount 0}}
+    <div class="cart">
+        <a href="/application/{{ .draftApplicationID }}">
+            <img src="http://127.0.0.1:9000/periods/cart.png" alt="Корзина" class="cart-icon">
+            <div class="cart-count"> {{ .selectedPeriodsCount }}</div>
+        </a>
+    </div>
+     {{else}}
+     <div class="cart">
+        <a href="/application/{{ .draftApplicationID }}">
+            <img src="http://127.0.0.1:9000/periods/cart.png" alt="Корзина" class="cart-icon">
+        </a>
+    </div>
+     {{end}}
+</body>
+</html>

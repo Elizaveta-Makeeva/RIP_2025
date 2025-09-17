@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>EMAstats</title>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans:ital,wght@0,100..900;1,100..900&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/static/styles/application_style.css?v=25200918">
+</head>
+<body>
+    <header class="custom-header"> 
+        <a class="logo-text" href="/home">emastats</a>
+        <a class="logo" href="/home">consulting</a>
+    </header>
+
+    <h1 class="application-title">Оформление заявки</h1>
+
+    <h2 class="request-info-title">Информация о заявке</h2>
+    <div class="company-year-container">
+        <div class="company-container">
+            <input type="text" placeholder="Название компании..." value="{{ .application.ClientCompany.Name }}" class="company-year-input">
+            <div class="company-year-hint">Введите название компании, для которой будет сделан расчет</div>
+        </div>
+        <div class="year-container">
+            <input type="text" placeholder="Год..." value="{{ .application.Year }}" class="company-year-input">
+            <div class="company-year-hint">Введите год, соответствующий периодам, для которых будет сделан расчет</div>
+        </div>
+    </div>
+
+    <h2 class="service-title">Выбранные услуги</h2>
+         <ul>
+            {{ range .application.SelectedPeriods }}
+            <li>
+                <div class="service-container">
+                    <img src="{{ .Img }}" alt="{{ .Title }}" class="img">
+                    <div class="service-name-container">
+                        <div class="service-name">{{ .Description }}</div>
+                        <div class="service-name-hint">Наименование услуги</div>
+                    </div>
+                    <div class="duration-container">
+                        <div class="duration">{{ .Duration }}</div>
+                        <div class="duration-hint">Срок выполнения услуги</div>
+                    </div>
+                    <div class="revenue-input-container"> 
+                        <textarea type="text" placeholder="Выручка..." class="revenue">{{ .PreviousRevenue }}</textarea>
+                        <div class="revenue-hint">Введите через точку с запятой выручку за предыдущие периоды</div> 
+                    </div>
+                    <div class="revenue-result-container">
+                        <div class="revenue-result">{{ .ForecastedRevenue }}</div>
+                        <div class="revenue-hint">Прогнозируемая выручка за следующий период</div>
+                    </div>
+                </div>
+            </li>
+            {{ end }}
+        </ul>
+
+        <div class="delete-application-container">
+            <form method="POST" action="/delete-application/{{ .application.ApplicationID }}">
+                <button type="submit" class="delete-application-btn">Удалить заявку</button>
+            </form>
+        </div>
+</body>
+</html>
