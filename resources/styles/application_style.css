@@ -1,0 +1,244 @@
+body {
+    margin: 0;
+    background-color: #02030C;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+}
+
+.custom-header {
+    width: 1340px;
+    height: 80px;
+    background-color: #1C201F;
+    border-radius: 10px;
+    padding-left: 25px;
+    display: flex;
+    align-items: center;
+    margin-bottom: 20px;
+}
+
+.logo-text {
+    color: #ffffff; 
+    font-family: "Noto Sans", sans-serif; 
+    font-size: 22px; 
+    text-decoration: none;
+}
+
+.logo-text:hover {
+    cursor: pointer;
+}
+
+.logo {
+    font-family: "Noto Sans", sans-serif;
+    font-size: 22px;
+    background-color: #47F89F;
+    margin-left: 7px;
+    text-decoration: none;
+    color: black;
+}
+
+.logo:hover {
+    cursor: pointer;
+}
+
+.application-title {
+    font-family: "Noto Sans", sans-serif;
+    font-size: 26px;
+    font-weight: 600;
+    color: #ffffff;
+    text-align: center;
+    margin: 10px 0;
+}
+
+.request-info-title {
+    font-family: "Noto Sans", sans-serif;
+    font-size: 20px;
+    font-weight: 400;
+    color: #ffffff;
+    margin: 20px 0 10px 0; 
+    width: 1340px; 
+    padding-left: 15px; 
+
+}
+
+.company-year-container {
+    width: 1340px;
+    display: flex;
+    padding-left: 15px; 
+    gap: 20px;
+}
+
+.company-container {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.year-container {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.company-year-input {
+    width: 194px;
+    height: 35px;
+    padding-left: 7px;
+    background-color: #1C201F;
+    border-radius: 5px;
+    border: 1px solid #259579;
+    margin-top: 10px;
+    font-family: "Noto Sans", sans-serif;
+    font-size: 16px;
+    color: #ffffff;
+    outline: none;
+}
+
+.company-year-input::placeholder {
+    color: #A29E9E;
+    font-family: "Noto Sans", sans-serif;
+    font-size: 16px;
+}
+
+.company-year-hint {
+    color: #A29E9E;
+    font-family: "Noto Sans", sans-serif;
+    font-size: 12px;
+    width: 194px;
+}
+
+.service-title {
+    font-family: "Noto Sans", sans-serif;
+    font-size: 20px;
+    font-weight: 400;
+    color: #ffffff;
+    margin: 40px 0 20px 0; 
+    width: 1340px; 
+    padding-left: 15px; 
+}
+
+.service-container {
+    width: 1340px;
+    margin-bottom: 50px;
+    display: flex;
+    align-items: flex-start; 
+    padding-left: 15px; 
+    gap: 50px;
+    min-height: 100px; 
+}
+
+.service-name-container,
+.revenue-result-container {
+    display: flex;
+    flex-direction: column;
+    min-width: 194px;
+    height: 100px; 
+}
+
+.service-name {
+    color: #ffffff;
+    width: 320px;
+    font-family: "Noto Sans", sans-serif;
+    align-items: flex-end; 
+    font-size: 16px;
+    margin-top: 10px;
+    margin-bottom: 8px;
+    flex-grow: 1;
+}
+
+.service-name-hint,
+.revenue-hint {
+    color: #A29E9E;
+    font-family: "Noto Sans", sans-serif;
+    font-size: 12px;
+    margin-top: auto; 
+    align-self: flex-start;
+    flex-shrink: 0; 
+    margin-top: auto;
+}
+
+.img {
+    width: 100px;
+    height: 100px;
+    object-fit: contain;
+    margin-right: 35px;
+    align-self: flex-start; 
+    margin-top: 10px; 
+}
+
+.duration-container {
+    display: flex;
+    flex-direction: column;
+    text-align: center;
+    min-width: 194px;
+    justify-content: center; 
+    align-items: center; 
+    height: 100px; 
+}
+
+.duration {
+    color: #ffffff;
+    font-family: "Noto Sans", sans-serif;
+    font-size: 16px;
+    margin-top: 10px;
+    margin-bottom: 8px;
+    width: 100%;
+    flex-grow: 1;
+}
+
+.duration-hint {
+    color: #A29E9E;
+    font-family: "Noto Sans", sans-serif;
+    font-size: 12px;
+    width: 100%;
+    text-align: center;
+    align-self: flex-start;
+    margin-top: auto;
+    flex-shrink: 0; 
+}
+
+.revenue-result {
+    height: 35px;
+    padding-left: 7px;
+    background-color: #1C201F;
+    border-radius: 5px;
+    border: 1px solid #259579;
+    margin-top: 10px;
+    margin-bottom: 8px;
+    font-family: "Noto Sans", sans-serif;
+    font-size: 16px;
+    color: #ffffff;
+    outline: none;
+    resize: vertical;
+    box-sizing: border-box;
+    display: flex;
+    align-items: center;
+    flex-shrink: 0;
+}
+
+.revenue-input-container {
+    display: flex;
+    flex-direction: column;
+    min-width: 194px;
+    height: 100px; 
+}
+
+.revenue {
+    height: 35px; 
+    min-height: 35px; 
+    padding: 8px 7px;
+    background-color: #1C201F;
+    border-radius: 5px;
+    border: 1px solid #259579;
+    margin-top: 10px;
+    margin-bottom: 8px;
+    font-family: "Noto Sans", sans-serif;
+    font-size: 16px;
+    color: #ffffff;
+    outline: none;
+    resize: vertical;
+    box-sizing: border-box;
+    line-height: 1.2;
+    overflow: hidden;
+    flex-shrink: 0;
+}
