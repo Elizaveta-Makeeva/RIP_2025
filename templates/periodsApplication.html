@@ -18,18 +18,18 @@
     <h2 class="request-info-title">Информация о заявке</h2>
     <div class="company-year-container">
         <div class="company-container">
-            <input type="text" placeholder="Название компании..." value="{{ .application.ClientCompany.Name }}" class="company-year-input">
+            <input type="text" placeholder="Название компании..." value="{{ .periodsApplication.ClientCompany.Name }}" class="company-year-input">
             <div class="company-year-hint">Введите название компании, для которой будет сделан расчет</div>
         </div>
         <div class="year-container">
-            <input type="text" placeholder="Год..." value="{{ .application.Year }}" class="company-year-input">
+            <input type="text" placeholder="Год..." value="{{ .periodsApplication.Year }}" class="company-year-input">
             <div class="company-year-hint">Введите год, соответствующий периодам, для которых будет сделан расчет</div>
         </div>
     </div>
 
     <h2 class="service-title">Выбранные услуги</h2>
          <ul>
-            {{ range .application.SelectedPeriods }}
+            {{ range .periodsApplication.SelectedPeriods }}
             <li>
                 <div class="service-container">
                     <img src="{{ .Img }}" alt="{{ .Title }}" class="card-img">
