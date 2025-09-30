@@ -32,7 +32,7 @@
                     <div class="card-duration">{{ .Duration }}</div>
                     <div class="card-buttons">
                         <a class="card-more" href="/period/{{ .ID }}">Подробнее</a>
-                        <form method="POST" action="/add-to-application/{{ .ID }}">
+                        <form method="POST" action="/add-to-periods-application/{{ .ID }}">
                             <input type="hidden" name="redirect" value="/home">
                             <button type="submit" class="card-button">В заявку</button>
                         </form>
@@ -45,15 +45,15 @@
     
      {{if gt .selectedPeriodsCount 0}}
     <div class="cart">
-        <a href="/application/{{ .draftApplicationID }}">
+        <a href="/periods-application/{{ .draftApplicationID }}">
             <img src="http://127.0.0.1:9000/periods/cart.png" alt="Корзина" class="cart-icon">
             <div class="cart-count"> {{ .selectedPeriodsCount }}</div>
         </a>
     </div>
      {{else}}
      <div class="cart">
-        <a href="/application/{{ .draftApplicationID }}">
-            <img src="http://127.0.0.1:9000/periods/cart.png" alt="Корзина" class="cart-icon">
+        <a href="/periods-application/{{ .draftApplicationID }}">
+            <img src="http://127.0.0.1:9000/periods/inactive_cart.png" alt="Корзина" class="cart-icon">
         </a>
     </div>
      {{end}}
