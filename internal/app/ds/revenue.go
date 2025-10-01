@@ -40,6 +40,7 @@ type SelectedPeriod struct {
 type User struct {
 	ID          int `gorm:"primaryKey"`
 	Login       string
+	Password    string
 	IsModerator bool
 	CreatedAt   time.Time
 	UpdatedAt   time.Time

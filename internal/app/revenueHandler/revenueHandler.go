@@ -5,11 +5,11 @@ import (
 )
 
 type RevenueHandler struct {
-  RevenueModel *revenueModel.RevenueModel
+	RevenueModel *revenueModel.RevenueModel
 }
 
 func NewRevenueHandler(r *revenueModel.RevenueModel) *RevenueHandler {
-  return &RevenueHandler{
-    RevenueModel: r,
-  }
+	return &RevenueHandler{
+		RevenueModel: r,
+	}
 }
