@@ -1,10 +1,12 @@
 package revenueHandler
 
 import (
+	"fmt"
 	"lab2/internal/app/ds"
 	"net/http"
+	"path/filepath"
 	"strconv"
-	"time"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 	"github.com/sirupsen/logrus"
@@ -16,11 +18,14 @@ func (h *RevenueHandler) RegisterRevenueHandler(router *gin.Engine) {
 		api.GET("/periods", h.GetPeriods)
 		api.GET("/periods/:id", h.GetPeriod)
 		api.POST("/periods", h.CreatePeriod)
-		api.PUT("/periods", h.UpdatePeriod)
+		api.PUT("/periods/:id", h.UpdatePeriod)
+		api.DELETE("/periods/:id", h.DeletePeriod)
 		api.POST("/periods/periods-application", h.AddPeriodToApplication)
+		api.POST("/periods/image/:id", h.CreateImageForPeriod)
 
 		api.GET("/periods-cart-info", h.GetPeriodsCartInfo)
 		api.GET("/periods-applications", h.GetPeriodsApplications)
+		api.GET("/periods-applications/:id", h.GetPeriodsApplication)
 		api.PUT("/periods-applications/:id", h.UpdatePeriodsApplication)
 		api.PUT("/periods-applications/:id/form", h.FormPeriodsApplication)
 		api.PUT("/periods-applications/:id/complete", h.CompletePeriodsApplication)
@@ -68,8 +73,305 @@ func (h *RevenueHandler) GetPeriods(ctx *gin.Context) {
 	}
 
 	ctx.JSON(http.StatusOK, gin.H{
-		"status":  "success",
 		"periods": periods,
+	})
+}
+
+func (h *RevenueHandler) GetPeriod(ctx *gin.Context) {
+	idStr := ctx.Param("id")
+	id, err := strconv.Atoi(idStr)
+	if err != nil {
+		h.errorRevenueHandler(ctx, http.StatusBadRequest, err)
+		return
+	}
+
+	period, err := h.RevenueModel.GetPeriod(id)
+	if err != nil {
+		h.errorRevenueHandler(ctx, http.StatusNotFound, err)
+		return
+	}
+
+	ctx.JSON(http.StatusOK, gin.H{
+		"period": period,
+	})
+}
+
+func (h *RevenueHandler) CreatePeriod(ctx *gin.Context) {
+	var request struct {
+		Title               string `json:"title" binding:"required"`
+		Description         string `json:"description" binding:"required"`
+		Duration            string `json:"duration" binding:"required"`
+		ShortDescription    string `json:"short_description" binding:"required"`
+		DetailedDescription string `json:"detailed_description" binding:"required"`
+	}
+
+	if err := ctx.ShouldBindJSON(&request); err != nil {
+		ctx.JSON(http.StatusBadRequest, gin.H{
+			"status":  "fail",
+			"message": "invalid input data",
+		})
+		return
+	}
+
+	is_active := true
+	period := &ds.Period{
+		Title:               &request.Title,
+		Description:         &request.Description,
+		Duration:            request.Duration,
+		ShortDescription:    &request.ShortDescription,
+		DetailedDescription: &request.DetailedDescription,
+		IsActive:            &is_active,
+	}
+
+	if err := h.RevenueModel.CreatePeriod(period); err != nil {
+		ctx.JSON(http.StatusInternalServerError, gin.H{
+			"status":  "fail",
+			"message": "error creating period",
+		})
+		return
+	}
+	ctx.JSON(http.StatusCreated, gin.H{
+		"period": period,
+	})
+}
+
+func (h *RevenueHandler) UpdatePeriod(ctx *gin.Context) {
+	idParam := ctx.Param("id")
+	id, err := strconv.Atoi(idParam)
+	if err != nil {
+		ctx.JSON(http.StatusBadRequest, gin.H{
+			"status":  "fail",
+			"message": "invalid id",
+		})
+		return
+	}
+
+	var request struct {
+		Title               string `json:"title"`
+		Description         string `json:"description"`
+		Duration            string `json:"duration"`
+		ShortDescription    string `json:"short_description"`
+		DetailedDescription string `json:"detailed_description"`
+	}
+
+	if err := ctx.ShouldBindJSON(&request); err != nil {
+		ctx.JSON(http.StatusBadRequest, gin.H{
+			"status":  "fail",
+			"message": "invalid input data",
+		})
+		return
+	}
+
+	updateData := make(map[string]interface{})
+	if request.Title != "" {
+		updateData["title"] = request.Title
+	}
+	if request.Description != "" {
+		updateData["description"] = request.Description
+	}
+	if request.Duration != "" {
+		updateData["duration"] = request.Duration
+	}
+	if request.ShortDescription != "" {
+		updateData["short_description"] = request.ShortDescription
+	}
+	if request.DetailedDescription != "" {
+		updateData["detailed_description"] = request.DetailedDescription
+	}
+
+	if len(updateData) == 0 {
+		ctx.JSON(http.StatusBadRequest, gin.H{
+			"status":  "fail",
+			"message": "no fields to update",
+		})
+		return
+	}
+
+	if err := h.RevenueModel.UpdatePeriod(id, updateData); err != nil {
+		ctx.JSON(http.StatusInternalServerError, gin.H{
+			"status":  "fail",
+			"message": "error updating period",
+		})
+		return
+	}
+
+	ctx.JSON(http.StatusOK, gin.H{
+		"period": updateData,
+	})
+}
+
+func (h *RevenueHandler) DeletePeriod(ctx *gin.Context) {
+	idStr := ctx.Param("id")
+	id, err := strconv.Atoi(idStr)
+	if err != nil || id <= 0 {
+		ctx.JSON(http.StatusBadRequest, gin.H{
+			"status":  "fail",
+			"message": "invalid id",
+		})
+		return
+	}
+
+	err = h.RevenueModel.DeletePeriod(id)
+	if err != nil {
+		if err.Error() == "period not found" {
+			ctx.JSON(http.StatusNotFound, gin.H{
+				"status":  "fail",
+				"message": "period not found",
+			})
+			return
+		}
+		ctx.JSON(http.StatusInternalServerError, gin.H{
+			"status":  "fail",
+			"message": "error deleting period: " + err.Error(),
+		})
+		return
+	}
+
+	ctx.JSON(http.StatusOK, gin.H{
+		"message": "period deleted successfully",
+	})
+}
+
+func (h *RevenueHandler) AddPeriodToApplication(ctx *gin.Context) {
+	var request struct {
+		ApplicationID int `json:"application_id" binding:"required"`
+		PeriodID      int `json:"period_id" binding:"required"`
+	}
+
+	if err := ctx.ShouldBindJSON(&request); err != nil {
+		ctx.JSON(http.StatusBadRequest, gin.H{
+			"status":  "fail",
+			"message": "invalid input data",
+		})
+		return
+	}
+
+	userID := 1
+	periodsApplication, err := h.RevenueModel.GetOrCreateApplication(request.ApplicationID, userID)
+	if err != nil {
+		h.errorRevenueHandler(ctx, http.StatusInternalServerError, err)
+		return
+	}
+
+	err = h.RevenueModel.AddPeriodToApplication(periodsApplication.ID, request.PeriodID)
+	if err != nil {
+		h.errorRevenueHandler(ctx, http.StatusInternalServerError, err)
+		return
+	}
+
+	ctx.JSON(http.StatusOK, gin.H{
+		"periods_application": gin.H{
+			"periods_application_id": periodsApplication.ID,
+			"period_id":              request.PeriodID,
+			"creator_id":             periodsApplication.CreatorID,
+			"created_at":             periodsApplication.CreatedAt,
+			"status":                 periodsApplication.Status,
+		},
+	})
+}
+
+func (h RevenueHandler) CreateImageForPeriod(ctx *gin.Context) {
+	id, err := strconv.Atoi(ctx.Param("id"))
+	if err != nil {
+		ctx.JSON(http.StatusBadRequest, gin.H{"status": "fail", "message": "invalid id"})
+		return
+	}
+
+	file, err := ctx.FormFile("file")
+	if err != nil {
+		h.errorRevenueHandler(ctx, http.StatusBadRequest, err)
+		return
+	}
+
+	ext := strings.ToLower(filepath.Ext(file.Filename))
+	allowedExtensions := map[string]bool{
+		".jpg":  true,
+		".jpeg": true,
+		".png":  true,
+		".gif":  true,
+		".bmp":  true,
+	}
+
+	if !allowedExtensions[ext] {
+		h.errorRevenueHandler(ctx, http.StatusBadRequest, fmt.Errorf("unsupported file type: %s", ext))
+		return
+	}
+
+	img, err := h.RevenueModel.CreateImageForPeriod(file, id)
+	if err != nil {
+		h.errorRevenueHandler(ctx, http.StatusBadRequest, err)
+		return
+	}
+
+	ctx.JSON(http.StatusOK, gin.H{
+		"image": img,
+	})
+}
+
+func (h *RevenueHandler) GetPeriodsCartInfo(ctx *gin.Context) {
+	userID := 1
+	periodsApplication, err := h.RevenueModel.GetOrCreateDraftApplication(userID)
+	if err != nil {
+		h.errorRevenueHandler(ctx, http.StatusInternalServerError, err)
+		return
+	}
+
+	count, err := h.RevenueModel.GetSelectedPeriodsCount(periodsApplication.ID)
+	if err != nil {
+		h.errorRevenueHandler(ctx, http.StatusInternalServerError, err)
+		return
+	}
+
+	ctx.JSON(http.StatusOK, gin.H{
+		"periods_cart": gin.H{
+			"periods_application_id": periodsApplication.ID,
+			"items_count":            count,
+		},
+	})
+}
+
+func (h *RevenueHandler) GetPeriodsApplications(ctx *gin.Context) {
+	status := ctx.Query("status")
+	startDate := ctx.Query("start_date")
+	endDate := ctx.Query("end_date")
+
+	periodsApplications, err := h.RevenueModel.GetPeriodsApplications(status, startDate, endDate)
+	if err != nil {
+		h.errorRevenueHandler(ctx, http.StatusInternalServerError, err)
+		return
+	}
+
+	ctx.JSON(http.StatusOK, gin.H{
+		"periods_applications": periodsApplications,
+	})
+}
+
+func (h *RevenueHandler) GetPeriodsApplication(ctx *gin.Context) {
+	idStr := ctx.Param("id")
+	id, err := strconv.Atoi(idStr)
+	if err != nil || id <= 0 {
+		ctx.JSON(http.StatusBadRequest, gin.H{
+			"status":  "fail",
+			"message": "invalid id",
+		})
+		return
+	}
+
+	applicationWithPeriods, err := h.RevenueModel.GetPeriodsApplication(id)
+	if err != nil {
+		if err.Error() == "application not found" {
+			ctx.JSON(http.StatusNotFound, gin.H{
+				"status":  "fail",
+				"message": "application not found",
+			})
+			return
+		}
+		h.errorRevenueHandler(ctx, http.StatusInternalServerError, err)
+		return
+	}
+
+	ctx.JSON(http.StatusOK, gin.H{
+		"periods_application": applicationWithPeriods,
 	})
 }
 
@@ -123,253 +425,8 @@ func (h *RevenueHandler) UpdatePeriodsApplication(ctx *gin.Context) {
 	}
 
 	ctx.JSON(http.StatusOK, gin.H{
-		"status":  "success",
-		"message": "application updated successfully",
-		"data":    updatedApplication,
+		"periods_application": updatedApplication,
 	})
-}
-
-func (h *RevenueHandler) GetPeriod(ctx *gin.Context) {
-	idStr := ctx.Param("id")
-	id, err := strconv.Atoi(idStr)
-	if err != nil {
-		h.errorRevenueHandler(ctx, http.StatusBadRequest, err)
-		return
-	}
-
-	period, err := h.RevenueModel.GetPeriod(id)
-	if err != nil {
-		h.errorRevenueHandler(ctx, http.StatusNotFound, err)
-		return
-	}
-
-	ctx.JSON(http.StatusOK, gin.H{
-		"status": "success",
-		"period": period,
-	})
-}
-
-func (h *RevenueHandler) CreatePeriod(ctx *gin.Context) {
-	var request struct {
-		Title               string `json:"title" binding:"required"`
-		Description         string `json:"description" binding:"required"`
-		Duration            string `json:"duration" binding:"required"`
-		ShortDescription    string `json:"short_description" binding:"required"`
-		DetailedDescription string `json:"detailed_description" binding:"required"`
-	}
-
-	if err := ctx.ShouldBindJSON(&request); err != nil {
-		ctx.JSON(http.StatusBadRequest, gin.H{
-			"status":  "fail",
-			"message": "invalid input data",
-		})
-		return
-	}
-
-	period := &ds.Period{
-		Title:               request.Title,
-		Description:         request.Description,
-		Duration:            request.Duration,
-		ShortDescription:    request.ShortDescription,
-		DetailedDescription: request.DetailedDescription,
-		IsActive:            true,
-	}
-
-	if err := h.RevenueModel.CreatePeriod(period); err != nil {
-		ctx.JSON(http.StatusInternalServerError, gin.H{
-			"status":  "fail",
-			"message": "error creating period",
-		})
-		return
-	}
-
-	ctx.JSON(http.StatusCreated, gin.H{
-		"status":  "success",
-		"message": "period created successfully",
-		"data":    period,
-	})
-}
-
-func (h *RevenueHandler) UpdatePeriod(ctx *gin.Context) {
-	var request struct {
-		ID                  int    `json:"id" binding:"required"`
-		Title               string `json:"title"`
-		Description         string `json:"description"`
-		Duration            string `json:"duration"`
-		ShortDescription    string `json:"short_description"`
-		DetailedDescription string `json:"detailed_description"`
-	}
-
-	if err := ctx.ShouldBindJSON(&request); err != nil {
-		ctx.JSON(http.StatusBadRequest, gin.H{
-			"status":  "fail",
-			"message": "invalid input data",
-		})
-		return
-	}
-
-	updateData := make(map[string]interface{})
-	if request.Title != "" {
-		updateData["title"] = request.Title
-	}
-	if request.Description != "" {
-		updateData["description"] = request.Description
-	}
-	if request.Duration != "" {
-		updateData["duration"] = request.Duration
-	}
-	if request.ShortDescription != "" {
-		updateData["short_description"] = request.ShortDescription
-	}
-	if request.DetailedDescription != "" {
-		updateData["detailed_description"] = request.DetailedDescription
-	}
-
-	if len(updateData) == 0 {
-		ctx.JSON(http.StatusBadRequest, gin.H{
-			"status":  "fail",
-			"message": "no fields to update",
-		})
-		return
-	}
-
-	if err := h.RevenueModel.UpdatePeriod(request.ID, updateData); err != nil {
-		ctx.JSON(http.StatusInternalServerError, gin.H{
-			"status":  "fail",
-			"message": "error updating period",
-		})
-		return
-	}
-
-	ctx.JSON(http.StatusOK, gin.H{
-		"status":  "success",
-		"message": "period updated successfully",
-	})
-}
-
-func (h *RevenueHandler) CreateEmptyDraftPeriodsApplication(ctx *gin.Context) {
-	userID := 1
-
-	periodsApplication, err := h.RevenueModel.CreateEmptyDraftPeriodsApplication(userID)
-	if err != nil {
-		h.errorRevenueHandler(ctx, http.StatusInternalServerError, err)
-		return
-	}
-
-	ctx.JSON(http.StatusCreated, gin.H{
-		"status":  "success",
-		"message": "empty draft periods application created successfully",
-		"data":    periodsApplication,
-	})
-}
-
-func (h *RevenueHandler) GetPeriodsCartInfo(ctx *gin.Context) {
-	userID := 1
-	periodsApplication, err := h.RevenueModel.GetOrCreateDraftApplication(userID)
-	if err != nil {
-		h.errorRevenueHandler(ctx, http.StatusInternalServerError, err)
-		return
-	}
-
-	count, err := h.RevenueModel.GetSelectedPeriodsCount(periodsApplication.ID)
-	if err != nil {
-		h.errorRevenueHandler(ctx, http.StatusInternalServerError, err)
-		return
-	}
-
-	ctx.JSON(http.StatusOK, gin.H{
-		"status": "success",
-		"data": gin.H{
-			"application_id": periodsApplication.ID,
-			"items_count":    count,
-		},
-	})
-}
-
-func (h *RevenueHandler) GetPeriodsApplications(ctx *gin.Context) {
-	status := ctx.Query("status")
-	startDate := ctx.Query("start_date")
-	endDate := ctx.Query("end_date")
-
-	applications, err := h.RevenueModel.GetPeriodsApplications(status, startDate, endDate)
-	if err != nil {
-		h.errorRevenueHandler(ctx, http.StatusInternalServerError, err)
-		return
-	}
-
-	ctx.JSON(http.StatusOK, gin.H{
-		"status":       "success",
-		"applications": applications,
-	})
-}
-
-func (h *RevenueHandler) GetOrCreateDraftApplication(ctx *gin.Context) {
-	userIDStr := ctx.Param("userID")
-	userID, err := strconv.Atoi(userIDStr)
-	if err != nil {
-		logrus.Error("error", err)
-	}
-
-	periodsApplication, err := h.RevenueModel.GetOrCreateDraftApplication(userID)
-	if err != nil {
-		logrus.Error("error", err)
-	}
-
-	ctx.HTML(http.StatusOK, "periodsApplication.html", gin.H{
-		"periodsApplication": periodsApplication,
-	})
-}
-
-func (h *RevenueHandler) AddPeriodToDraftApplication(ctx *gin.Context) {
-	var request struct {
-		PeriodID int `json:"period_id" binding:"required"`
-	}
-
-	if err := ctx.ShouldBindJSON(&request); err != nil {
-		ctx.JSON(http.StatusBadRequest, gin.H{
-			"status":  "fail",
-			"message": "invalid input data",
-		})
-		return
-	}
-
-	userID := 1
-
-	periodsApplication, err := h.RevenueModel.GetOrCreateDraftApplication(userID)
-	if err != nil {
-		h.errorRevenueHandler(ctx, http.StatusInternalServerError, err)
-		return
-	}
-
-	err = h.RevenueModel.AddPeriodToApplication(periodsApplication.ID, request.PeriodID)
-	if err != nil {
-		h.errorRevenueHandler(ctx, http.StatusInternalServerError, err)
-		return
-	}
-
-	ctx.JSON(http.StatusOK, gin.H{
-		"status":  "success",
-		"message": "period added to draft application successfully",
-		"data": gin.H{
-			"application_id": periodsApplication.ID,
-			"period_id":      request.PeriodID,
-		},
-	})
-}
-
-func (h *RevenueHandler) DeleteApplication(ctx *gin.Context) {
-	periodsApplicationIDStr := ctx.Param("id")
-	periodsApplicationID, err := strconv.Atoi(periodsApplicationIDStr)
-	if err != nil {
-		logrus.Error("error", err)
-	}
-
-	err = h.RevenueModel.DeleteApplication(periodsApplicationID)
-	if err != nil {
-		logrus.Error("error", err)
-	}
-
-	ctx.Redirect(http.StatusFound, "/home")
 }
 
 func (h *RevenueHandler) FormPeriodsApplication(ctx *gin.Context) {
@@ -395,6 +452,14 @@ func (h *RevenueHandler) FormPeriodsApplication(ctx *gin.Context) {
 		return
 	}
 
+	if request.Status != "formed" {
+		ctx.JSON(http.StatusBadRequest, gin.H{
+			"status":  "fail",
+			"message": "status must be 'formed'",
+		})
+		return
+	}
+
 	canForm, missingFields, err := h.RevenueModel.CanFormPeriodsApplication(id)
 	if err != nil {
 		ctx.JSON(http.StatusInternalServerError, gin.H{
@@ -413,25 +478,64 @@ func (h *RevenueHandler) FormPeriodsApplication(ctx *gin.Context) {
 		return
 	}
 
-	updateData := map[string]interface{}{
-		"status":    request.Status,
-		"formed_at": time.Now(),
-	}
-
-	updatedApplication, err := h.RevenueModel.FormPeriodsApplication(id, updateData)
+	updatedApplication, err := h.RevenueModel.FormPeriodsApplication(id, request.Status)
 	if err != nil {
 		ctx.JSON(http.StatusInternalServerError, gin.H{
 			"status":  "fail",
-			"message": "error forming application",
+			"message": "error forming application: " + err.Error(),
 		})
 		return
 	}
 
 	ctx.JSON(http.StatusOK, gin.H{
-		"status":  "success",
-		"message": "application formed successfully",
-		"data":    updatedApplication,
+		"periods_application": updatedApplication,
 	})
+}
+
+func (h *RevenueHandler) CreateEmptyDraftPeriodsApplication(ctx *gin.Context) {
+	userID := 1
+
+	periodsApplication, err := h.RevenueModel.CreateEmptyDraftPeriodsApplication(userID)
+	if err != nil {
+		h.errorRevenueHandler(ctx, http.StatusInternalServerError, err)
+		return
+	}
+
+	ctx.JSON(http.StatusCreated, gin.H{
+		"periods_application": periodsApplication,
+	})
+}
+
+func (h *RevenueHandler) GetOrCreateDraftApplication(ctx *gin.Context) {
+	userIDStr := ctx.Param("userID")
+	userID, err := strconv.Atoi(userIDStr)
+	if err != nil {
+		logrus.Error("error", err)
+	}
+
+	periodsApplication, err := h.RevenueModel.GetOrCreateDraftApplication(userID)
+	if err != nil {
+		logrus.Error("error", err)
+	}
+
+	ctx.HTML(http.StatusOK, "periodsApplication.html", gin.H{
+		"periodsApplication": periodsApplication,
+	})
+}
+
+func (h *RevenueHandler) DeleteApplication(ctx *gin.Context) {
+	periodsApplicationIDStr := ctx.Param("id")
+	periodsApplicationID, err := strconv.Atoi(periodsApplicationIDStr)
+	if err != nil {
+		logrus.Error("error", err)
+	}
+
+	err = h.RevenueModel.DeleteApplication(periodsApplicationID)
+	if err != nil {
+		logrus.Error("error", err)
+	}
+
+	ctx.Redirect(http.StatusFound, "/home")
 }
 
 func (h *RevenueHandler) CompletePeriodsApplication(ctx *gin.Context) {
@@ -476,9 +580,7 @@ func (h *RevenueHandler) CompletePeriodsApplication(ctx *gin.Context) {
 	}
 
 	ctx.JSON(http.StatusOK, gin.H{
-		"status":  "success",
-		"message": "application " + request.Status + " successfully",
-		"data":    result,
+		"periods_application": result,
 	})
 }
 
@@ -495,15 +597,35 @@ func (h *RevenueHandler) DeletePeriodsApplication(ctx *gin.Context) {
 
 	err = h.RevenueModel.DeletePeriodsApplication(id)
 	if err != nil {
+		if err.Error() == "application not found" {
+			ctx.JSON(http.StatusNotFound, gin.H{
+				"status":  "fail",
+				"message": err.Error(),
+			})
+			return
+		}
+		if err.Error() == "application is already deleted" {
+			ctx.JSON(http.StatusBadRequest, gin.H{
+				"status":  "fail",
+				"message": err.Error(),
+			})
+			return
+		}
+		if strings.Contains(err.Error(), "cannot delete application with status") {
+			ctx.JSON(http.StatusForbidden, gin.H{
+				"status":  "fail",
+				"message": err.Error(),
+			})
+			return
+		}
 		ctx.JSON(http.StatusInternalServerError, gin.H{
 			"status":  "fail",
-			"message": "error deleting application",
+			"message": "error deleting application: " + err.Error(),
 		})
 		return
 	}
 
 	ctx.JSON(http.StatusOK, gin.H{
-		"status":  "success",
 		"message": "application deleted successfully",
 	})
 }
@@ -540,7 +662,6 @@ func (h *RevenueHandler) DeletePeriodFromApplication(ctx *gin.Context) {
 	}
 
 	ctx.JSON(http.StatusOK, gin.H{
-		"status":  "success",
 		"message": "period deleted from application successfully",
 	})
 }
@@ -783,45 +904,5 @@ func (h *RevenueHandler) LogoutUser(ctx *gin.Context) {
 	ctx.JSON(http.StatusOK, gin.H{
 		"status":  "success",
 		"message": "logout successful",
-	})
-}
-
-func (h *RevenueHandler) AddPeriodToApplication(ctx *gin.Context) {
-	var request struct {
-		ApplicationID int `json:"application_id" binding:"required"`
-		PeriodID      int `json:"period_id" binding:"required"`
-	}
-
-	if err := ctx.ShouldBindJSON(&request); err != nil {
-		ctx.JSON(http.StatusBadRequest, gin.H{
-			"status":  "fail",
-			"message": "invalid input data",
-		})
-		return
-	}
-
-	userID := 1
-	// Получаем или создаем заявку
-	periodsApplication, err := h.RevenueModel.GetOrCreateApplication(request.ApplicationID, userID)
-	if err != nil {
-		h.errorRevenueHandler(ctx, http.StatusInternalServerError, err)
-		return
-	}
-
-	// Добавляем период в заявку
-	err = h.RevenueModel.AddPeriodToApplication(periodsApplication.ID, request.PeriodID)
-	if err != nil {
-		h.errorRevenueHandler(ctx, http.StatusInternalServerError, err)
-		return
-	}
-
-	ctx.JSON(http.StatusOK, gin.H{
-		"status":  "success",
-		"message": "period added to application successfully",
-		"data": gin.H{
-			"application_id": periodsApplication.ID,
-			"period_id":      request.PeriodID,
-			"status":         periodsApplication.Status,
-		},
 	})
 }

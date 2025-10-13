@@ -2,8 +2,8 @@ package config
 
 import (
 	"os"
-	
-   "github.com/joho/godotenv"
+
+	"github.com/joho/godotenv"
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/viper"
 )
@@ -16,24 +16,24 @@ type Config struct {
 func NewConfig() (*Config, error) {
 	var err error
 
-   configName := "config"
-   _ = godotenv.Load()
-   if os.Getenv("CONFIG_NAME") != "" {
-      configName = os.Getenv("CONFIG_NAME")
-   }
+	configName := "config"
+	_ = godotenv.Load()
+	if os.Getenv("CONFIG_NAME") != "" {
+		configName = os.Getenv("CONFIG_NAME")
+	}
 
-   viper.SetConfigName(configName)
-   viper.SetConfigType("toml")
-   viper.AddConfigPath("config")
-   viper.AddConfigPath(".")
-   viper.WatchConfig()
+	viper.SetConfigName(configName)
+	viper.SetConfigType("toml")
+	viper.AddConfigPath("config")
+	viper.AddConfigPath(".")
+	viper.WatchConfig()
 
 	err = viper.ReadInConfig()
 	if err != nil {
 		return nil, err
 	}
 
-	cfg := &Config{} 
+	cfg := &Config{}
 	err = viper.Unmarshal(cfg)
 	if err != nil {
 		return nil, err
@@ -42,4 +42,20 @@ func NewConfig() (*Config, error) {
 	log.Info("config parsed")
 
 	return cfg, nil
+}
+
+type MinioConfig struct {
+	Endpoint  string
+	Bucket    string
+	AccessKey string
+	SecretKey string
+	UseSSL    bool
+}
+
+var MinioClientConfig = MinioConfig{
+	Endpoint:  "localhost:9000",
+	Bucket:    "periods",
+	AccessKey: "minio",
+	SecretKey: "minio124",
+	UseSSL:    false,
 }

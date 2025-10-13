@@ -1,13 +1,22 @@
 package revenueModel
 
 import (
+	"context"
+	"errors"
 	"fmt"
+	"lab2/internal/app/config"
 	"lab2/internal/app/ds"
 	"math"
 	"math/rand"
+	"mime/multipart"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/minio/minio-go/v7"
+	uuid "github.com/satori/go.uuid"
+	"gorm.io/gorm"
 )
 
 func calculateEMA(values []float64) float64 {
@@ -27,8 +36,6 @@ func calculateEMA(values []float64) float64 {
 }
 
 func (r *RevenueModel) CreatePeriod(period *ds.Period) error {
-	period.CreatedAt = time.Now()
-	period.UpdatedAt = time.Now()
 	return r.db.Create(period).Error
 }
 
@@ -44,14 +51,127 @@ func (r *RevenueModel) UpdatePeriod(id int, updateData map[string]interface{}) e
 	return nil
 }
 
-func (r *RevenueModel) UpdatePeriodImage(id int, imagePath string) error {
-	return r.db.Model(&ds.Period{}).Where("id = ?", id).Updates(map[string]interface{}{
-		"img":        imagePath,
-		"updated_at": time.Now(),
-	}).Error
+func (r *RevenueModel) checkObjectExists(objectName string) (bool, error) {
+	ctx := context.Background()
+	_, err := r.client.StatObject(ctx, config.MinioClientConfig.Bucket, objectName, minio.StatObjectOptions{})
+	if err != nil {
+		if minio.ToErrorResponse(err).Code == "NoSuchKey" {
+			return false, nil
+		}
+		return false, err
+	}
+	return true, nil
+}
+
+func (r *RevenueModel) verifyUpload(objectName string, expectedSize int64) (bool, error) {
+	ctx := context.Background()
+	info, err := r.client.StatObject(ctx, config.MinioClientConfig.Bucket, objectName, minio.StatObjectOptions{})
+	if err != nil {
+		return false, err
+	}
+	return info.Size == expectedSize, nil
+}
+
+func (r *RevenueModel) DeletePhotoFromMinio(objectName string) error {
+	ctx := context.Background()
+	return r.client.RemoveObject(ctx, config.MinioClientConfig.Bucket, objectName, minio.RemoveObjectOptions{})
+}
+
+func (r *RevenueModel) CreateImageForPeriod(file *multipart.FileHeader, periodID int) (*ds.Image, error) {
+	var period ds.Period
+	result := r.db.Where("id = ?", periodID).First(&period)
+	if result.Error != nil {
+		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
+			return nil, errors.New("period not found")
+		}
+		return nil, result.Error
+	}
+
+	ext := strings.ToLower(filepath.Ext(file.Filename))
+	if ext == "" {
+		ext = ".jpg"
+	}
+
+	objectKey := uuid.Must(uuid.NewV4(), nil).String() + ext
+	ctx := context.Background()
+
+	if *period.Img != "" {
+		oldKey := strings.TrimPrefix(*period.Img, fmt.Sprintf("http://%s/%s/", config.MinioClientConfig.Endpoint, config.MinioClientConfig.Bucket))
+		_ = r.DeletePhotoFromMinio(oldKey)
+	}
+
+	exists, err := r.checkObjectExists(objectKey)
+	if err != nil {
+		return nil, fmt.Errorf("failed to check if object exists: %v", err)
+	}
+	if exists {
+		return nil, fmt.Errorf("photo with name '%s' already exists", objectKey)
+	}
+
+	src, err := file.Open()
+	if err != nil {
+		return nil, fmt.Errorf("failed to open file: %v", err)
+	}
+	defer src.Close()
+
+	contentType := file.Header.Get("Content-Type")
+	if contentType == "" {
+		contentType = "application/octet-stream"
+	}
+
+	_, err = r.client.PutObject(
+		ctx,
+		config.MinioClientConfig.Bucket,
+		objectKey,
+		src,
+		file.Size,
+		minio.PutObjectOptions{ContentType: contentType},
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to upload file to MinIO: %v", err)
+	}
+
+	uploaded, err := r.verifyUpload(objectKey, file.Size)
+	if err != nil || !uploaded {
+		_ = r.DeletePhotoFromMinio(objectKey)
+		return nil, fmt.Errorf("file upload verification failed: %v", err)
+	}
+
+	url := fmt.Sprintf("http://%s/%s/%s", config.MinioClientConfig.Endpoint, config.MinioClientConfig.Bucket, objectKey)
+
+	result = r.db.Model(&ds.Period{}).Where("id = ?", periodID).Update("img", url)
+	if result.Error != nil {
+		return nil, result.Error
+	}
+
+	return &ds.Image{
+		Name: objectKey,
+		URL:  url,
+	}, nil
 }
 
 func (r *RevenueModel) DeletePeriod(id int) error {
+	var period ds.Period
+	if err := r.db.Where("id = ?", id).First(&period).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return fmt.Errorf("period not found")
+		}
+		return err
+	}
+
+	if *period.Img != "" {
+		objectKey := strings.TrimPrefix(*period.Img, fmt.Sprintf("http://%s/%s/", config.MinioClientConfig.Endpoint, config.MinioClientConfig.Bucket))
+		if objectKey != "" && objectKey != *period.Img {
+			if err := r.DeletePhotoFromMinio(objectKey); err != nil {
+				fmt.Printf("Warning: failed to delete image from MinIO: %v\n", err)
+			}
+		}
+	}
+
+	if err := r.db.Where("period_id = ?", id).Delete(&ds.SelectedPeriod{}).Error; err != nil {
+		return fmt.Errorf("failed to delete related selected periods: %w", err)
+	}
+
 	result := r.db.Where("id = ?", id).Delete(&ds.Period{})
 	if result.Error != nil {
 		return result.Error
@@ -65,15 +185,12 @@ func (r *RevenueModel) DeletePeriod(id int) error {
 func (r *RevenueModel) GetPeriodsApplications(status, startDate, endDate string) ([]map[string]interface{}, error) {
 	var applications []ds.PeriodsApplication
 
-	// Базовый запрос
 	query := r.db.Where("status != ? AND status != ?", "deleted", "draft")
 
-	// Фильтрация по статусу
 	if status != "" {
 		query = query.Where("status = ?", status)
 	}
 
-	// Фильтрация по диапазону дат
 	if startDate != "" {
 		query = query.Where("formed_at >= ?", startDate)
 	}
@@ -122,7 +239,6 @@ func (r *RevenueModel) GetPeriodsApplications(status, startDate, endDate string)
 		item := map[string]interface{}{
 			"id":            app.ID,
 			"year":          app.Year,
-			"full_duration": app.FullDuration,
 			"status":        app.Status,
 			"creator_login": creatorLogins[app.CreatorID],
 			"company_name":  app.CompanyName,
@@ -183,16 +299,49 @@ func (r *RevenueModel) GetSelectedPeriodsCount(periodsApplicationID int) (int, e
 	return int(count), nil
 }
 
+func (r *RevenueModel) GetPeriodsApplication(applicationID int) (map[string]interface{}, error) {
+	var application ds.PeriodsApplication
+	if err := r.db.Where("id = ?", applicationID).First(&application).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, fmt.Errorf("application not found")
+		}
+		return nil, err
+	}
+
+	var creator ds.User
+	if err := r.db.Where("id = ?", application.CreatorID).First(&creator).Error; err != nil {
+		return nil, fmt.Errorf("failed to get creator info: %w", err)
+	}
+
+	selectedPeriods, err := r.GetSelectedPeriodsWithDetails(applicationID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get application periods: %w", err)
+	}
+
+	result := map[string]interface{}{
+		"id":           application.ID,
+		"year":         application.Year,
+		"status":       application.Status,
+		"creator_id":   application.CreatorID,
+		"moderator_id": application.ModeratorID,
+		"company_name": application.CompanyName,
+		"created_at":   application.CreatedAt,
+		"formed_at":    application.FormedAt,
+		"completed_at": application.CompletedAt,
+		"periods":      selectedPeriods,
+	}
+
+	return result, nil
+}
+
 func (r *RevenueModel) CreateEmptyDraftPeriodsApplication(userID int) (*ds.PeriodsApplication, error) {
+	year := time.Now().Year()
+
 	newApplication := &ds.PeriodsApplication{
-		Year:        0,
-		CreatorID:   userID,
-		Status:      "draft",
-		CompanyName: "",
-		CreatedAt:   time.Now(),
-		FormedAt:    time.Now(),
-		ModeratorID: nil,
-		CompletedAt: nil,
+		Year:      &year,
+		CreatorID: userID,
+		Status:    "draft",
+		CreatedAt: time.Now(),
 	}
 
 	err := r.db.Create(newApplication).Error
@@ -334,19 +483,25 @@ func (r *RevenueModel) GetSelectedPeriodsWithDetails(applicationID int) ([]map[s
 
 	for _, sp := range selectedPeriods {
 		var period ds.Period
-		r.db.Where("id = ?", sp.PeriodID).First(&period)
+		if err := r.db.Where("id = ?", sp.PeriodID).First(&period).Error; err != nil {
+			continue
+		}
 
-		result = append(result, map[string]interface{}{
-			"period_id":          sp.PeriodID,
-			"application_id":     sp.ApplicationID,
-			"title":              period.Title,
-			"description":        period.Description,
-			"duration":           period.Duration,
-			"previous_revenue":   sp.PreviousRevenue,
-			"forecasted_revenue": sp.ForecastedRevenue,
-			"created_at":         sp.CreatedAt,
-			"updated_at":         sp.UpdatedAt,
-		})
+		periodInfo := map[string]interface{}{
+			"period_id":              sp.PeriodID,
+			"periods_application_id": sp.ApplicationID,
+			"title":                  period.Title,
+			"description":            period.Description,
+			"duration":               period.Duration,
+			"short_description":      period.ShortDescription,
+			"detailed_description":   period.DetailedDescription,
+			"img":                    period.Img,
+			"is_active":              period.IsActive,
+			"previous_revenue":       sp.PreviousRevenue,
+			"forecasted_revenue":     sp.ForecastedRevenue,
+		}
+
+		result = append(result, periodInfo)
 	}
 
 	return result, nil
@@ -360,11 +515,9 @@ func (r *RevenueModel) GetOrCreateDraftApplication(userID int) (*ds.PeriodsAppli
 	}
 
 	newApplication := &ds.PeriodsApplication{
-		Year:      time.Now().Year(),
 		CreatorID: userID,
 		Status:    "draft",
 		CreatedAt: time.Now(),
-		FormedAt:  time.Now(),
 	}
 
 	err = r.db.Create(newApplication).Error
@@ -408,7 +561,7 @@ func (r *RevenueModel) AddPeriodToApplication(periodsApplicationID, periodID int
 	if err := r.db.Where("id = ?", periodID).First(&period).Error; err != nil {
 		return fmt.Errorf("не удалось получить период: %w", err)
 	}
-	previousRevenue := generatePreviousRevenueFromPeriod(period.Title)
+	previousRevenue := generatePreviousRevenueFromPeriod(*period.Title)
 
 	selectedPeriod := &ds.SelectedPeriod{
 		ApplicationID:   periodsApplicationID,
@@ -443,13 +596,6 @@ func (r *RevenueModel) CanFormPeriodsApplication(id int) (bool, []string, error)
 
 	var missingFields []string
 
-	if application.CompanyName == "" {
-		missingFields = append(missingFields, "company_name")
-	}
-	if application.Year == 0 {
-		missingFields = append(missingFields, "year")
-	}
-
 	count, err := r.GetSelectedPeriodsCount(id)
 	if err != nil {
 		return false, nil, err
@@ -462,19 +608,34 @@ func (r *RevenueModel) CanFormPeriodsApplication(id int) (bool, []string, error)
 }
 
 func (r *RevenueModel) DeletePeriodsApplication(id int) error {
+	var application ds.PeriodsApplication
+	if err := r.db.Where("id = ?", id).First(&application).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return fmt.Errorf("application not found")
+		}
+		return err
+	}
+
+	if application.Status == "deleted" {
+		return fmt.Errorf("application is already deleted")
+	}
+
+	if application.Status == "completed" || application.Status == "rejected" {
+		return fmt.Errorf("cannot delete application with status '%s' - it has already been processed", application.Status)
+	}
+
 	result := r.db.Model(&ds.PeriodsApplication{}).
 		Where("id = ?", id).
-		Updates(map[string]interface{}{
-			"status":    "deleted",
-			"formed_at": time.Now(),
-		})
+		Update("status", "deleted")
 
 	if result.Error != nil {
-		return result.Error
+		return fmt.Errorf("error deleting application: %w", result.Error)
 	}
+
 	if result.RowsAffected == 0 {
-		return fmt.Errorf("periods application not found")
+		return fmt.Errorf("failed to delete application")
 	}
+
 	return nil
 }
 
@@ -608,15 +769,10 @@ func (r *RevenueModel) GetOrCreateApplication(applicationID, userID int) (*ds.Pe
 
 	// Заявка не существует, создаем новую
 	newApplication := &ds.PeriodsApplication{
-		ID:          applicationID,
-		Year:        time.Now().Year(),
-		CreatorID:   userID,
-		Status:      "draft",
-		CompanyName: "",
-		CreatedAt:   time.Now(),
-		FormedAt:    time.Now(),
-		ModeratorID: nil,
-		CompletedAt: nil,
+		ID:        applicationID,
+		CreatorID: userID,
+		Status:    "draft",
+		CreatedAt: time.Now(),
 	}
 
 	err = r.db.Create(newApplication).Error
@@ -628,34 +784,21 @@ func (r *RevenueModel) GetOrCreateApplication(applicationID, userID int) (*ds.Pe
 }
 
 func (r *RevenueModel) FormPeriodsApplication(id int, status string) (*ds.PeriodsApplication, error) {
-	// Получаем текущую заявку
 	var application ds.PeriodsApplication
 	if err := r.db.Where("id = ?", id).First(&application).Error; err != nil {
 		return nil, err
 	}
 
-	// Логируем текущие даты для отладки
-	fmt.Printf("Application %d dates: created_at=%v, formed_at=%v\n",
-		application.ID, application.CreatedAt, application.FormedAt)
-
-	// Определяем правильное время для formed_at
 	var formedAt time.Time
 	now := time.Now()
 
-	if application.CreatedAt.After(now) {
-		// Если created_at в будущем, используем его
+	formedAt = now
+	if formedAt.Before(application.CreatedAt) {
 		formedAt = application.CreatedAt
-	} else {
-		// Иначе используем текущее время, но не раньше created_at
-		formedAt = now
-		if formedAt.Before(application.CreatedAt) {
-			formedAt = application.CreatedAt
-		}
 	}
 
-	fmt.Printf("Setting formed_at to: %v\n", formedAt)
+	fmt.Printf("Setting status to: %s, formed_at to: %v\n", status, formedAt)
 
-	// Обновляем заявку
 	updateData := map[string]interface{}{
 		"status":    status,
 		"formed_at": formedAt,
@@ -670,11 +813,13 @@ func (r *RevenueModel) FormPeriodsApplication(id int, status string) (*ds.Period
 		return nil, fmt.Errorf("periods application not found")
 	}
 
-	// Получаем обновленную заявку
 	var updatedApplication ds.PeriodsApplication
 	if err := r.db.Where("id = ?", id).First(&updatedApplication).Error; err != nil {
 		return nil, err
 	}
+
+	fmt.Printf("Application %d after update - status: %s, formed_at: %v\n",
+		updatedApplication.ID, updatedApplication.Status, updatedApplication.FormedAt)
 
 	return &updatedApplication, nil
 }
